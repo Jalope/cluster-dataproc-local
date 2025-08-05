@@ -1,0 +1,90 @@
+version: '3.8'
+services:
+  # ZOOKEEPER
+  zookeeper:
+    image: bitnami/zookeeper:latest
+    environment:
+      - ALLOW_ANONYMOUS_LOGIN=yes
+    ports:
+      - "2181:2181"
+  
+  # KAFKA
+  kafka:
+    image: bitnami/kafka:latest
+    depends_on:
+      - zookeeper
+    environment:
+      - KAFKA_CFG_ZOOKEEPER_CONNECT=zookeeper:2181
+      - ALLOW_PLAINTEXT_LISTENER=yes
+      - KAFKA_CFG_LISTENERS=PLAINTEXT://:9092
+      - KAFKA_CFG_ADVERTISED_LISTENERS=PLAINTEXT://kafka:9092
+    ports:
+      - "9093:9092"
+
+
+  # NODO MÁSTER: HDFS NameNode, YARN, Spark master y JupyterLab
+  unircluster-m:
+    image: bde2020/hadoop-namenode:2.0.0-hadoop2.7.4-java8
+    hostname: unircluster-m
+    container_name: unircluster-m
+    environment:
+      - CORE_CONF_fs_defaultFS=hdfs://unircluster-m:9000
+      - SPARK_MODE=master
+      - SPARK_MASTER_HOST=unircluster-m
+    ports:
+      - "9870:9870"   # UI NameNode
+      - "8088:8088"   # UI YARN
+      - "7077:7077"   # Spark master
+      - "8080:8080"   # UI Spark
+      - "8888:8888"   # JupyterLab
+    volumes:
+      - ./hadoop/name:/hadoop/dfs/name
+      - ./notebooks:/home/jovyan/work
+    command: |
+      bash -c "\
+        /docker-entrypoint.sh namenode & \
+        /opt/bitnami/spark/sbin/start-master.sh & \
+        jupyter lab --ip=0.0.0.0 --allow-root --NotebookApp.token=''; \
+      "
+
+  # NODO WORKER 0: DataNode + Spark worker
+  unircluster-w-0:
+    image: bde2020/hadoop-datanode:2.0.0-hadoop2.7.4-java8
+    hostname: unircluster-w-0
+    container_name: unircluster-w-0
+    depends_on:
+      - unircluster-m
+    environment:
+      - CORE_CONF_fs_defaultFS=hdfs://unircluster-m:9000
+      - SPARK_MODE=worker
+      - SPARK_MASTER_URL=spark://unircluster-m:7077
+    volumes:
+      - ./hadoop/data0:/hadoop/dfs/data
+    command: |
+      bash -c "\
+        /docker-entrypoint.sh datanode & \
+        /opt/bitnami/spark/sbin/start-worker.sh spark://unircluster-m:7077; \
+      "
+
+  # NODO WORKER 1: DataNode + Spark worker
+  unircluster-w-1:
+    image: bde2020/hadoop-datanode:2.0.0-hadoop2.7.4-java8
+    hostname: unircluster-w-1
+    container_name: unircluster-w-1
+    depends_on:
+      - unircluster-m
+    environment:
+      - CORE_CONF_fs_defaultFS=hdfs://unircluster-m:9000
+      - SPARK_MODE=worker
+      - SPARK_MASTER_URL=spark://unircluster-m:7077
+    volumes:
+      - ./hadoop/data1:/hadoop/dfs/data
+    command: |
+      bash -c "\
+        /docker-entrypoint.sh datanode & \
+        /opt/bitnami/spark/sbin/start-worker.sh spark://unircluster-m:7077; \
+      "
+
+networks:
+  default:
+    driver: bridge
