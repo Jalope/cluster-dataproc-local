@@ -30,8 +30,9 @@ services:
     volumes:
       - ./hadoop/name:/hadoop/dfs/name
     ports:
-      - "9000:9000"   # HDFS RPC
-      - "9870:9870"   # NameNode UI
+        - "9000:9000"     # RPC HDFS
+        - "50070:50070"   # HDFS NameNode UI (puerto por defecto)
+        - "9870:50070"    # alias: localhost:9870 → contenedor:50070
     entrypoint: ["/entrypoint.sh"]
     command: ["hdfs", "namenode"]
 
