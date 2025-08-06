@@ -1,5 +1,6 @@
+version: '3.8'
 services:
-  # Zookeeper
+  # ───────── ZOOKEEPER ─────────
   zookeeper:
     image: bitnami/zookeeper:latest
     environment:
@@ -7,7 +8,7 @@ services:
     ports:
       - "2181:2181"
 
-  # Kafka
+  # ───────── KAFKA ─────────
   kafka:
     image: bitnami/kafka:latest
     depends_on:
@@ -20,57 +21,100 @@ services:
     ports:
       - "9093:9092"
 
-  # Master HDFS (NameNode)
-  unircluster-m:
+  # ───────── HDFS NAME NODE ─────────
+  namenode:
     image: bde2020/hadoop-namenode:2.0.0-hadoop2.7.4-java8
-    container_name: unircluster-m
+    container_name: namenode
     environment:
-      - CORE_CONF_fs_defaultFS=hdfs://unircluster-m:9000
-    ports:
-      - "9870:9870"   # HDFS NameNode UI
+      - CORE_CONF_fs_defaultFS=hdfs://namenode:9000
     volumes:
       - ./hadoop/name:/hadoop/dfs/name
-    command: ["namenode"]
+    ports:
+      - "9000:9000"   # HDFS RPC
+      - "9870:9870"   # NameNode UI
+    entrypoint: ["/entrypoint.sh"]
+    command: ["hdfs", "namenode"]
 
-  # Worker 0 (DataNode)
-  unircluster-w-0:
+  # ───────── HDFS DATA NODE 0 ─────────
+  datanode-0:
     image: bde2020/hadoop-datanode:2.0.0-hadoop2.7.4-java8
-    container_name: unircluster-w-0
+    container_name: datanode-0
     depends_on:
-      - unircluster-m
+      - namenode
     environment:
-      - CORE_CONF_fs_defaultFS=hdfs://unircluster-m:9000
+      - CORE_CONF_fs_defaultFS=hdfs://namenode:9000
     volumes:
       - ./hadoop/data0:/hadoop/dfs/data
-    command: ["datanode"]
+    entrypoint: ["/entrypoint.sh"]
+    command: ["hdfs", "datanode"]
 
-  # Worker 1 (DataNode)
-  unircluster-w-1:
+  # ───────── HDFS DATA NODE 1 ─────────
+  datanode-1:
     image: bde2020/hadoop-datanode:2.0.0-hadoop2.7.4-java8
-    container_name: unircluster-w-1
+    container_name: datanode-1
     depends_on:
-      - unircluster-m
+      - namenode
     environment:
-      - CORE_CONF_fs_defaultFS=hdfs://unircluster-m:9000
+      - CORE_CONF_fs_defaultFS=hdfs://namenode:9000
     volumes:
       - ./hadoop/data1:/hadoop/dfs/data
-    command: ["datanode"]
+    entrypoint: ["/entrypoint.sh"]
+    command: ["hdfs", "datanode"]
 
-  # Spark Master
+  # ───────── YARN RESOURCE MANAGER ─────────
+  resourcemanager:
+    image: bde2020/hadoop-resourcemanager:2.0.0-hadoop2.7.4-java8
+    container_name: resourcemanager
+    depends_on:
+      - namenode
+    environment:
+      - CORE_CONF_fs_defaultFS=hdfs://namenode:9000
+      - YARN_CONF_yarn_resourcemanager_hostname=resourcemanager
+    ports:
+      - "8088:8088"   # ResourceManager UI
+    entrypoint: ["/entrypoint.sh"]
+    command: ["yarn", "resourcemanager"]
+
+  # ───────── YARN NODE MANAGER 0 ─────────
+  nodemanager-0:
+    image: bde2020/hadoop-nodemanager:2.0.0-hadoop2.7.4-java8
+    container_name: nodemanager-0
+    depends_on:
+      - resourcemanager
+    environment:
+      - CORE_CONF_fs_defaultFS=hdfs://namenode:9000
+      - YARN_CONF_yarn_resourcemanager_hostname=resourcemanager
+    entrypoint: ["/entrypoint.sh"]
+    command: ["yarn", "nodemanager"]
+
+  # ───────── YARN NODE MANAGER 1 ─────────
+  nodemanager-1:
+    image: bde2020/hadoop-nodemanager:2.0.0-hadoop2.7.4-java8
+    container_name: nodemanager-1
+    depends_on:
+      - resourcemanager
+    environment:
+      - CORE_CONF_fs_defaultFS=hdfs://namenode:9000
+      - YARN_CONF_yarn_resourcemanager_hostname=resourcemanager
+    entrypoint: ["/entrypoint.sh"]
+    command: ["yarn", "nodemanager"]
+
+  # ───────── SPARK MASTER ─────────
   spark-master:
     image: bitnami/spark:latest
     container_name: spark-master
+    depends_on:
+      - namenode
     environment:
       - SPARK_MODE=master
       - SPARK_MASTER_HOST=spark-master
       - SPARK_RPC_AUTHENTICATION_ENABLED=no
+      - SPARK_HADOOP_FS_DEFAULTFS=hdfs://namenode:9000
     ports:
-      - "7077:7077"   # Spark master endpoint
-      - "8080:8080"   # Spark master UI
-    depends_on:
-      - unircluster-m
+      - "7077:7077"   # Spark Master endpoint
+      - "8080:8080"   # Spark Master UI
 
-  # Spark Worker
+  # ───────── SPARK WORKER ─────────
   spark-worker:
     image: bitnami/spark:latest
     container_name: spark-worker
@@ -80,16 +124,16 @@ services:
       - SPARK_MODE=worker
       - SPARK_MASTER_URL=spark://spark-master:7077
 
-  # JupyterLab para PySpark
+  # ───────── JUPYTERLAB ─────────
   jupyter:
     image: jupyter/pyspark-notebook:latest
     container_name: jupyter
-    ports:
-      - "8888:8888"
-    volumes:
-      - ./notebooks:/home/jovyan/work
     depends_on:
       - spark-master
+    volumes:
+      - ./notebooks:/home/jovyan/work
+    ports:
+      - "8888:8888"
     command: >
       start-notebook.sh --NotebookApp.token=''
 
